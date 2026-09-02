@@ -492,6 +492,12 @@ pub fn add(
     if (step.rootModuleTarget().abi != .msvc) {
         step.root_module.link_libcpp = true;
     }
+    if (step.rootModuleTarget().os.tag == .ios) {
+        step.root_module.addCSourceFile(.{
+            .file = b.path("src/os/ios_libcpp_compat.cpp"),
+            .flags = &.{},
+        });
+    }
 
     // We always require the system SDK so that our system headers are available.
     // This makes things like `os/log.h` available for cross-compiling.
