@@ -100,6 +100,10 @@ pub const Message = union(enum) {
     /// Set the write callback for the callback backend.
     set_write_callback: SetWriteCallback,
 
+    /// Data received from an external custom I/O source. The data is owned by
+    /// this message and must be freed after it is processed.
+    feed_data: FeedData,
+
     /// The payload of the kitty_clipboard_grant_* messages. The
     /// password is allocated and must be freed.
     pub const KittyClipboardGrant = struct {
@@ -127,6 +131,7 @@ pub const Message = union(enum) {
                 v.alloc.destroy(v.ptr);
             },
             .write_alloc => |v| v.alloc.free(v.data),
+            .feed_data => |v| v.alloc.free(v.data),
             .kitty_clipboard_grant_read,
             .kitty_clipboard_grant_write,
             => |v| v.alloc.free(v.pw),
@@ -141,6 +146,12 @@ pub const Message = union(enum) {
     pub const SetWriteCallback = struct {
         write_fn: ?termio.Callback.WriteFn,
         userdata: ?*anyopaque,
+    };
+
+    /// Payload for data received by the callback backend.
+    pub const FeedData = struct {
+        alloc: Allocator,
+        data: []u8,
     };
 };
 

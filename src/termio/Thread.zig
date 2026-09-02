@@ -375,6 +375,15 @@ fn drainMailbox(
                     else => {},
                 }
             },
+            .feed_data => |v| {
+                defer v.alloc.free(v.data);
+
+                // A surface resize is coalesced on this thread. Flush it
+                // before parsing external output so callers observe FIFO
+                // ordering between set_size and feed_data.
+                self.flushResize(cb);
+                io.processOutput(v.data);
+            },
         }
     }
 
@@ -451,14 +460,18 @@ fn coalesceCallback(
 
     const cb = cb_ orelse return .disarm;
 
-    if (cb.self.coalesce_data.resize) |v| {
-        cb.self.coalesce_data.resize = null;
+    cb.self.flushResize(cb);
+
+    return .disarm;
+}
+
+fn flushResize(self: *Thread, cb: *CallbackData) void {
+    if (self.coalesce_data.resize) |v| {
+        self.coalesce_data.resize = null;
         cb.io.resize(&cb.data, v) catch |err| {
             log.warn("error during resize err={}", .{err});
         };
     }
-
-    return .disarm;
 }
 
 fn wakeupCallback(

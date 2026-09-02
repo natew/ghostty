@@ -2523,7 +2523,18 @@ pub const CAPI = struct {
             len: usize,
         ) void {
             if (len == 0) return;
-            ptr.core_surface.io.processOutput(data[0..len]);
+
+            const io = &ptr.core_surface.io;
+            const owned = io.alloc.dupe(u8, data[0..len]) catch |err| {
+                log.err("failed to queue custom I/O data len={} err={}", .{ len, err });
+                return;
+            };
+            io.queueMessage(.{
+                .feed_data = .{
+                    .alloc = io.alloc,
+                    .data = owned,
+                },
+            }, .unlocked);
         }
 
         /// Set the write callback for custom I/O backend.
