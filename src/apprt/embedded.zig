@@ -1909,6 +1909,7 @@ pub const CAPI = struct {
         sel: Selection,
         result: *Text,
     ) bool {
+        if (comptime builtin.single_threaded) surface.core_surface.pumpIo();
         surface.core_surface.renderer_state.mutex.lockUncancelable(global.io());
         defer surface.core_surface.renderer_state.mutex.unlock(global.io());
 
@@ -1973,6 +1974,7 @@ pub const CAPI = struct {
     /// to the pty and the renderer.
     export fn ghostty_surface_set_size(surface: *Surface, w: u32, h: u32) void {
         surface.updateSize(w, h);
+        if (comptime builtin.single_threaded) surface.core_surface.pumpIo();
     }
 
     /// Return the size information a surface has.
@@ -2548,6 +2550,7 @@ pub const CAPI = struct {
                 .data = owned,
             },
         }, .unlocked);
+        if (comptime builtin.single_threaded) ptr.core_surface.pumpIo();
     }
 
     /// Set the write callback for custom I/O backend.
@@ -2569,5 +2572,6 @@ pub const CAPI = struct {
                 .userdata = userdata,
             },
         }, .unlocked);
+        if (comptime builtin.single_threaded) ptr.core_surface.pumpIo();
     }
 };

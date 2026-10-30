@@ -736,24 +736,27 @@ pub fn init(
     // setup on the main thread prior to spinning up the rendering thread.
     try renderer_impl.finalizeSurfaceInit(rt_surface);
 
-    // the guest has no threads; rung 3 replaces this with a cooperative loop
-    if (comptime builtin.single_threaded) return error.SingleThreaded;
+    if (comptime builtin.single_threaded) {
+        // a target without threads has no renderer thread: the embedder draws
+        // from `draw`. IO runs on the embedder's thread, pumped by `pumpIo`.
+        try self.io_thread.startCooperative(&self.io);
+    } else {
+        // Start our renderer thread
+        self.renderer_thr = try std.Thread.spawn(
+            .{},
+            rendererpkg.Thread.threadMain,
+            .{&self.renderer_thread},
+        );
+        self.renderer_thr.setName(global.io(), "renderer") catch {};
 
-    // Start our renderer thread
-    self.renderer_thr = try std.Thread.spawn(
-        .{},
-        rendererpkg.Thread.threadMain,
-        .{&self.renderer_thread},
-    );
-    self.renderer_thr.setName(global.io(), "renderer") catch {};
-
-    // Start our IO thread
-    self.io_thr = try std.Thread.spawn(
-        .{},
-        termio.Thread.threadMain,
-        .{ &self.io_thread, &self.io },
-    );
-    self.io_thr.setName(global.io(), "io") catch {};
+        // Start our IO thread
+        self.io_thr = try std.Thread.spawn(
+            .{},
+            termio.Thread.threadMain,
+            .{ &self.io_thread, &self.io },
+        );
+        self.io_thr.setName(global.io(), "io") catch {};
+    }
 
     // Determine our initial window size if configured. We need to do this
     // quite late in the process because our height/width are in grid dimensions,
@@ -819,21 +822,25 @@ pub fn deinit(self: *Surface) void {
     // Stop search thread
     if (self.search) |*s| s.deinit();
 
-    // Stop rendering thread
-    {
-        self.renderer_thread.stop.notify() catch |err|
-            log.err("error notifying renderer thread to stop, may stall err={}", .{err});
-        self.renderer_thr.join();
+    if (comptime builtin.single_threaded) {
+        self.io_thread.stopCooperative();
+    } else {
+        // Stop rendering thread
+        {
+            self.renderer_thread.stop.notify() catch |err|
+                log.err("error notifying renderer thread to stop, may stall err={}", .{err});
+            self.renderer_thr.join();
 
-        // We need to become the active rendering thread again
-        self.renderer.threadEnter(self.rt_surface) catch unreachable;
-    }
+            // We need to become the active rendering thread again
+            self.renderer.threadEnter(self.rt_surface) catch unreachable;
+        }
 
-    // Stop our IO thread
-    {
-        self.io_thread.stop.notify() catch |err|
-            log.err("error notifying io thread to stop, may stall err={}", .{err});
-        self.io_thr.join();
+        // Stop our IO thread
+        {
+            self.io_thread.stop.notify() catch |err|
+                log.err("error notifying io thread to stop, may stall err={}", .{err});
+            self.io_thr.join();
+        }
     }
 
     // We need to deinit AFTER everything is stopped, since there are
@@ -863,6 +870,13 @@ pub fn deinit(self: *Surface) void {
     self.config.deinit();
 
     log.info("surface closed id={x}", .{self.id});
+}
+
+/// Run the io thread's pending work on the calling thread. Only targets
+/// without threads need this; the app tick and the custom I/O entry points
+/// call it.
+pub fn pumpIo(self: *Surface) void {
+    self.io_thread.pump();
 }
 
 /// Close this surface. This will trigger the runtime to start the

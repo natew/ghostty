@@ -1,0 +1,221 @@
+--- a/src/backend/wasi_poll.zig	2026-10-30 04:36:54
++++ b/src/backend/wasi_poll.zig	2026-10-30 04:39:21
+@@ -242,9 +242,9 @@
+             }
+ 
+             // Setup our timeout. If we have nothing to wait for then
+-            // we just set an expiring timer so that we still poll but it
+-            // will return ASAP.
+-            const timeout: wasi.timestamp_t = if (wait_rem == 0) self.cached_now else timeout: {
++            // we just set a zero relative timer so that we still poll but it
++            // will return ASAP (an absolute clock subscription blocks on some hosts).
++            const timeout: wasi.timestamp_t = if (wait_rem == 0) 0 else timeout: {
+                 // If we have a timer use that value, otherwise we can afford
+                 // to sleep for awhile since we're waiting for something to
+                 // happen. We set this sleep to 60 seconds arbitrarily. On
+@@ -256,13 +256,13 @@
+             self.batch.array[0] = .{
+                 .userdata = 0,
+                 .u = .{
+-                    .tag = wasi.EVENTTYPE_CLOCK,
++                    .tag = .CLOCK,
+                     .u = .{
+                         .clock = .{
+-                            .id = @as(u32, @bitCast(posix.CLOCK.MONOTONIC)),
++                            .id = posix.CLOCK.MONOTONIC,
+                             .timeout = timeout,
+                             .precision = 1 * std.time.ns_per_ms,
+-                            .flags = wasi.SUBSCRIPTION_CLOCK_ABSTIME,
++                            .flags = if (wait_rem == 0) 0 else wasi.SUBSCRIPTION_CLOCK_ABSTIME,
+                         },
+                     },
+                 },
+@@ -378,9 +378,9 @@
+ 
+             .shutdown => |v| res: {
+                 const how: wasi.sdflags_t = switch (v.how) {
+-                    .both => wasi.SHUT.WR | wasi.SHUT.RD,
+-                    .recv => wasi.SHUT.RD,
+-                    .send => wasi.SHUT.WR,
++                    .both => .{ .RD = true, .WR = true },
++                    .recv => .{ .RD = true },
++                    .send => .{ .WR = true },
+                 };
+ 
+                 break :res .{
+@@ -392,7 +392,7 @@
+             },
+ 
+             .close => |v| res: {
+-                posix.close(v.fd);
++                _ = wasi.fd_close(v.fd);
+                 break :res .{ .close = {} };
+             },
+ 
+@@ -584,7 +584,7 @@
+     fn timer_next(next_ms: u64) wasi.timestamp_t {
+         // Get the absolute time we'll execute this timer next.
+         var now_ts: wasi.timestamp_t = undefined;
+-        switch (wasi.clock_time_get(@as(u32, @bitCast(posix.CLOCK.MONOTONIC)), 1, &now_ts)) {
++        switch (wasi.clock_time_get(posix.CLOCK.MONOTONIC, 1, &now_ts)) {
+             .SUCCESS => {},
+             .INVAL => unreachable,
+             else => unreachable,
+@@ -669,7 +669,7 @@
+             .read => |v| .{
+                 .userdata = @intFromPtr(self),
+                 .u = .{
+-                    .tag = wasi.EVENTTYPE_FD_READ,
++                    .tag = .FD_READ,
+                     .u = .{
+                         .fd_read = .{
+                             .fd = v.fd,
+@@ -681,7 +681,7 @@
+             .pread => |v| .{
+                 .userdata = @intFromPtr(self),
+                 .u = .{
+-                    .tag = wasi.EVENTTYPE_FD_READ,
++                    .tag = .FD_READ,
+                     .u = .{
+                         .fd_read = .{
+                             .fd = v.fd,
+@@ -693,7 +693,7 @@
+             .write => |v| .{
+                 .userdata = @intFromPtr(self),
+                 .u = .{
+-                    .tag = wasi.EVENTTYPE_FD_WRITE,
++                    .tag = .FD_WRITE,
+                     .u = .{
+                         .fd_write = .{
+                             .fd = v.fd,
+@@ -705,7 +705,7 @@
+             .pwrite => |v| .{
+                 .userdata = @intFromPtr(self),
+                 .u = .{
+-                    .tag = wasi.EVENTTYPE_FD_WRITE,
++                    .tag = .FD_WRITE,
+                     .u = .{
+                         .fd_write = .{
+                             .fd = v.fd,
+@@ -717,7 +717,7 @@
+             .accept => |v| .{
+                 .userdata = @intFromPtr(self),
+                 .u = .{
+-                    .tag = wasi.EVENTTYPE_FD_READ,
++                    .tag = .FD_READ,
+                     .u = .{
+                         .fd_read = .{
+                             .fd = v.socket,
+@@ -729,7 +729,7 @@
+             .recv => |v| .{
+                 .userdata = @intFromPtr(self),
+                 .u = .{
+-                    .tag = wasi.EVENTTYPE_FD_READ,
++                    .tag = .FD_READ,
+                     .u = .{
+                         .fd_read = .{
+                             .fd = v.fd,
+@@ -741,7 +741,7 @@
+             .send => |v| .{
+                 .userdata = @intFromPtr(self),
+                 .u = .{
+-                    .tag = wasi.EVENTTYPE_FD_WRITE,
++                    .tag = .FD_WRITE,
+                     .u = .{
+                         .fd_write = .{
+                             .fd = v.fd,
+@@ -777,7 +777,7 @@
+             .accept => |*op| res: {
+                 var out_fd: posix.fd_t = undefined;
+                 break :res .{
+-                    .accept = switch (wasi.sock_accept(op.socket, 0, &out_fd)) {
++                    .accept = switch (wasi.sock_accept(op.socket, .{}, &out_fd)) {
+                         .SUCCESS => out_fd,
+                         else => |err| posix.unexpectedErrno(err),
+                     },
+@@ -786,8 +786,8 @@
+ 
+             .read => |*op| res: {
+                 const n_ = switch (op.buffer) {
+-                    .slice => |v| posix.read(op.fd, v),
+-                    .array => |*v| posix.read(op.fd, v),
++                    .slice => |v| fdRead(op.fd, v),
++                    .array => |*v| fdRead(op.fd, v),
+                 };
+ 
+                 break :res .{
+@@ -800,8 +800,8 @@
+ 
+             .pread => |*op| res: {
+                 const n_ = switch (op.buffer) {
+-                    .slice => |v| posix.pread(op.fd, v, op.offset),
+-                    .array => |*v| posix.pread(op.fd, v, op.offset),
++                    .slice => |v| fdPread(op.fd, v, op.offset),
++                    .array => |*v| fdPread(op.fd, v, op.offset),
+                 };
+ 
+                 break :res .{
+@@ -814,8 +814,8 @@
+ 
+             .write => |*op| res: {
+                 const n_ = switch (op.buffer) {
+-                    .slice => |v| posix.write(op.fd, v),
+-                    .array => |*v| posix.write(op.fd, v.array[0..v.len]),
++                    .slice => |v| fdWrite(op.fd, v),
++                    .array => |*v| fdWrite(op.fd, v.array[0..v.len]),
+                 };
+ 
+                 break :res .{
+@@ -825,8 +825,8 @@
+ 
+             .pwrite => |*op| res: {
+                 const n_ = switch (op.buffer) {
+-                    .slice => |v| posix.pwrite(op.fd, v, op.offset),
+-                    .array => |*v| posix.pwrite(op.fd, v.array[0..v.len], op.offset),
++                    .slice => |v| fdPwrite(op.fd, v, op.offset),
++                    .array => |*v| fdPwrite(op.fd, v.array[0..v.len], op.offset),
+                 };
+ 
+                 break :res .{
+@@ -1649,4 +1649,41 @@
+     defer f_verify.close();
+     read_len = try f_verify.readAll(&read_buf);
+     try testing.expectEqualStrings(write_buf, read_buf[0..read_len.?]);
++}
++
++// std.posix no longer carries file io for wasi, so these call the syscalls.
++fn fdRead(fd: wasi.fd_t, buf: []u8) !usize {
++    const iov = [1]posix.iovec{.{ .base = buf.ptr, .len = buf.len }};
++    var n: usize = undefined;
++    return switch (wasi.fd_read(fd, &iov, 1, &n)) {
++        .SUCCESS => n,
++        else => |err| posix.unexpectedErrno(err),
++    };
+ }
++
++fn fdPread(fd: wasi.fd_t, buf: []u8, offset: u64) !usize {
++    const iov = [1]posix.iovec{.{ .base = buf.ptr, .len = buf.len }};
++    var n: usize = undefined;
++    return switch (wasi.fd_pread(fd, &iov, 1, offset, &n)) {
++        .SUCCESS => n,
++        else => |err| posix.unexpectedErrno(err),
++    };
++}
++
++fn fdWrite(fd: wasi.fd_t, buf: []const u8) !usize {
++    const iov = [1]posix.iovec_const{.{ .base = buf.ptr, .len = buf.len }};
++    var n: usize = undefined;
++    return switch (wasi.fd_write(fd, &iov, 1, &n)) {
++        .SUCCESS => n,
++        else => |err| posix.unexpectedErrno(err),
++    };
++}
++
++fn fdPwrite(fd: wasi.fd_t, buf: []const u8, offset: u64) !usize {
++    const iov = [1]posix.iovec_const{.{ .base = buf.ptr, .len = buf.len }};
++    var n: usize = undefined;
++    return switch (wasi.fd_pwrite(fd, &iov, 1, offset, &n)) {
++        .SUCCESS => n,
++        else => |err| posix.unexpectedErrno(err),
++    };
++}

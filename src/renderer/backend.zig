@@ -6,11 +6,14 @@ pub const Backend = enum {
     opengl,
     metal,
     webgl,
+    headless,
 
     pub fn default(
         target: std.Target,
         wasm_target: WasmTarget,
     ) Backend {
+        if (target.os.tag == .wasi) return .headless;
+
         if (target.cpu.arch == .wasm32) {
             return switch (wasm_target) {
                 .browser => .webgl,

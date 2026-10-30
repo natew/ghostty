@@ -156,6 +156,11 @@ pub fn destroy(self: *App) void {
 pub fn tick(self: *App, rt_app: *apprt.App) !void {
     // Drain our mailbox
     try self.drainMailbox(rt_app);
+
+    // a target without threads runs each surface's io work here
+    if (comptime builtin.single_threaded) {
+        for (self.surfaces.items) |surface| surface.core().pumpIo();
+    }
 }
 
 /// Update the configuration associated with the app. This can only be

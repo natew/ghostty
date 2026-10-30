@@ -91,7 +91,9 @@ pub fn init(opts: InitOpts) !void {
         // faster than GPA. We only do this in release modes so that we
         // can get easy memory leak detection in debug modes.
         if (builtin.link_libc) {
-            if (switch (builtin.mode) {
+            // wasi guests use libc malloc in every mode, as native release
+            // builds do.
+            if (builtin.os.tag == .wasi or switch (builtin.mode) {
                 .ReleaseSafe, .ReleaseFast => true,
 
                 // We also use it if we can detect we're running under

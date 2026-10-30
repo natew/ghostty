@@ -24,6 +24,8 @@ pub fn isLocal(hostname: []const u8) LocalHostnameValidationError!bool {
             const ourHostname = buf[0..nSize];
             return std.mem.eql(u8, hostname, ourHostname);
         },
+        // a wasi guest has no hostname, so only "localhost" is ours
+        .wasi => return false,
         else => {
             var buf: [posix.HOST_NAME_MAX]u8 = undefined;
             const ourHostname = try posix.gethostname(&buf);

@@ -73,6 +73,10 @@ sync_reset: xev.Timer,
 sync_reset_c: xev.Completion = .{},
 sync_reset_cancel_c: xev.Completion = .{},
 
+/// The callback data of a thread that has no OS thread behind it: the
+/// embedder pumps the loop on its own thread (see `startCooperative`).
+cooperative: ?*CallbackData = null,
+
 flags: packed struct {
     /// This is set to true only when an abnormal exit is detected. It
     /// tells our mailbox system to drain and ignore all messages.
@@ -277,6 +281,47 @@ fn threadMain_(self: *Thread, io: *termio.Termio) !void {
     log.debug("starting IO thread", .{});
     defer log.debug("starting IO thread shutdown", .{});
     try self.loop.run(.until_done);
+}
+
+/// Start this thread's work on the caller's thread for a target that has no
+/// threads. Everything `threadMain` does up to running the loop happens here;
+/// `pump` then runs the loop without blocking and `stopCooperative` ends it.
+pub fn startCooperative(self: *Thread, io: *termio.Termio) !void {
+    const mailbox = switch (io.mailbox) {
+        .spsc => |*v| v,
+    };
+
+    const cb = try self.alloc.create(CallbackData);
+    errdefer self.alloc.destroy(cb);
+    cb.* = .{ .self = self, .io = io };
+
+    try io.threadEnter(self, &cb.data);
+    errdefer cb.data.deinit();
+    errdefer io.threadExit(&cb.data);
+
+    mailbox.wakeup.wait(&self.loop, &self.wakeup_c, CallbackData, cb, wakeupCallback);
+    self.stop.wait(&self.loop, &self.stop_c, CallbackData, cb, stopCallback);
+    self.cooperative = cb;
+}
+
+/// Run every ready event on the loop, then return.
+pub fn pump(self: *Thread) void {
+    if (self.cooperative == null) return;
+    self.loop.run(.no_wait) catch |err| {
+        log.warn("error pumping io loop err={}", .{err});
+    };
+}
+
+/// Run the exit path `threadMain` runs when its loop ends.
+pub fn stopCooperative(self: *Thread) void {
+    const cb = self.cooperative orelse return;
+    self.stop.notify() catch |err|
+        log.err("error notifying io thread to stop err={}", .{err});
+    self.pump();
+    cb.io.threadExit(&cb.data);
+    cb.data.deinit();
+    self.alloc.destroy(cb);
+    self.cooperative = null;
 }
 
 /// This is the data passed to xev callbacks on the thread.
