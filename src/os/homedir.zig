@@ -16,7 +16,7 @@ pub inline fn home(io: std.Io, environ_map: *const std.process.Environ.Map, buf:
         .windows => homeWindows(environ_map, buf) catch return error.BufferTooSmall,
 
         // iOS doesn't have a user-writable home directory
-        .ios => null,
+        .ios, .wasi => null,
 
         else => @compileError("unimplemented"),
     };
@@ -110,7 +110,7 @@ pub fn expandHome(
         .windows => return path,
 
         // iOS doesn't have a user-writable home directory
-        .ios => return path,
+        .ios, .wasi => return path,
 
         else => @compileError("unimplemented"),
     };

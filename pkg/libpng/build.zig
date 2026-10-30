@@ -53,6 +53,13 @@ pub fn build(b: *std.Build) !void {
             "-DPNG_INTEL_SSE_OPT=0",
             "-DPNG_MIPS_MSA_OPT=0",
         });
+        if (target.result.os.tag == .wasi) {
+            try flags.appendSlice(b.allocator, &.{
+                "-fwasm-exceptions",
+                "-mllvm",
+                "-wasm-enable-sjlj",
+            });
+        }
         if (target.result.abi == .msvc) {
             try flags.appendSlice(b.allocator, &.{
                 "-fno-sanitize=undefined",

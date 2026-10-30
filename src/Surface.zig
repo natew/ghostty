@@ -653,6 +653,9 @@ pub fn init(
             var io_callback = try termio.Callback.init(alloc, .{});
             errdefer io_callback.deinit();
             backend = .{ .callback = io_callback };
+        } else if (comptime builtin.os.tag == .wasi) {
+            // wasi has no processes; embedders must use custom io
+            return error.ExecUnavailable;
         } else {
             var env = rt_surface.defaultTermioEnv() catch |err| env: {
                 // If an error occurs, we don't want to block surface startup.
@@ -732,6 +735,9 @@ pub fn init(
     // Give the renderer one more opportunity to finalize any surface
     // setup on the main thread prior to spinning up the rendering thread.
     try renderer_impl.finalizeSurfaceInit(rt_surface);
+
+    // the guest has no threads; rung 3 replaces this with a cooperative loop
+    if (comptime builtin.single_threaded) return error.SingleThreaded;
 
     // Start our renderer thread
     self.renderer_thr = try std.Thread.spawn(
@@ -1349,7 +1355,7 @@ fn childExitedAbnormally(
 
     // Build up our command for the error message
     const command = try std.mem.join(alloc, " ", switch (self.io.backend) {
-        .exec => |*exec| exec.subprocess.args,
+        .exec => |*exec| if (comptime builtin.os.tag == .wasi) unreachable else exec.subprocess.args,
         .callback => &[_][]const u8{},
     });
     const runtime_str = try std.fmt.allocPrint(alloc, "{d} ms", .{info.runtime_ms});
@@ -4990,6 +4996,7 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
                 const s: *Search = &self.search.?;
                 errdefer s.state.deinit();
 
+                if (comptime builtin.single_threaded) return error.SingleThreaded;
                 s.thread = try .spawn(
                     .{},
                     terminal.search.Thread.threadMain,

@@ -5,7 +5,7 @@ const build_options = @import("build_options");
 const cli = @import("cli.zig");
 const internal_os = @import("os/main.zig");
 const fontconfig = @import("fontconfig");
-const glslang = @import("glslang");
+const glslang = if (builtin.os.tag == .wasi) struct { fn init() !void {} } else @import("glslang");
 const harfbuzz = @import("harfbuzz");
 const oni = @import("oniguruma");
 const crash = @import("crash/main.zig");
@@ -408,7 +408,7 @@ pub const GlobalState = struct {
 
     fn initSignals() void {
         // Only posix systems.
-        if (comptime builtin.os.tag == .windows) return;
+        if (comptime builtin.os.tag == .windows or builtin.os.tag == .wasi) return;
 
         const p = std.posix;
 

@@ -140,7 +140,8 @@ fn buildLib(b: *std.Build, options: anytype) !*std.Build.Step.Compile {
     if (target.result.os.tag != .windows) {
         try flags.appendSlice(b.allocator, &.{
             "-DHAVE_UNISTD_H",
-            "-DHAVE_SYS_MMAN_H",
+            // wasi has no mmap
+            "-DHAVE_SYS_MMAN_H_WASI_OFF",
             "-DHAVE_PTHREAD=1",
         });
     }
@@ -279,7 +280,8 @@ const HarfBuzzC = struct {
             if (options.target.result.os.tag != .windows) {
                 try flag_builder.appendSlice(b.allocator, &.{
                     "-DHAVE_UNISTD_H",
-                    "-DHAVE_SYS_MMAN_H",
+                    // wasi has no mmap
+                    "-DHAVE_SYS_MMAN_H_WASI_OFF",
                     "-DHAVE_PTHREAD=1",
                 });
             }
@@ -303,6 +305,7 @@ const HarfBuzzC = struct {
                 try flag_builder.appendSlice(b.allocator, &.{"-fblocks"});
             }
 
+            if (options.target.result.os.tag == .wasi) try flag_builder.appendSlice(b.allocator, &.{ "-D__wasm_exception_handling__=1", "-D_WASI_EMULATED_SIGNAL", "-D_WASI_EMULATED_MMAN", "-D_WASI_EMULATED_PROCESS_CLOCKS" });
             break :flags flag_builder.items;
         };
 
@@ -322,6 +325,11 @@ const HarfBuzzC = struct {
             } else null,
             .extra_args = flags,
         });
+
+        // zig 0.16 aro searches the wasi musl stddef.h before its own, which leaves wchar_t undefined
+        if (options.target.result.os.tag == .wasi) {
+            hb_c.addSystemIncludePath(translate_c_dep.builder.dependency("aro", .{}).path("include"));
+        }
 
         if (options.harfbuzz == .static) {
             if (b.lazyDependency("harfbuzz", .{})) |upstream| {

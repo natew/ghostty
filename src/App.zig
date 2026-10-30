@@ -82,7 +82,7 @@ pub fn create(alloc: Allocator) CreateError!*App {
     // If font discovery supports warmup, then we call it. Some font
     // mechanisms (e.g. CoreText) have a multi-millisecond one-time cost
     // on startup.
-    if (comptime @hasDecl(font.Discover, "warmup")) {
+    if (comptime font.Discover != void and @hasDecl(font.Discover, "warmup")) {
         if (std.Thread.spawn(
             .{},
             font.Discover.warmup,
@@ -625,7 +625,7 @@ pub const Mailbox = struct {
 };
 
 // Wasm API.
-pub const Wasm = if (!builtin.target.isWasm()) struct {} else struct {
+pub const Wasm = if (!(builtin.target.cpu.arch.isWasm() and builtin.target.os.tag == .freestanding)) struct {} else struct {
     const wasm = @import("os/wasm.zig");
     const alloc = wasm.alloc;
 

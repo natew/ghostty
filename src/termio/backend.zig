@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
 const posix = std.posix;
 const renderer = @import("../renderer.zig");
@@ -9,6 +10,10 @@ const ProcessInfo = @import("../pty.zig").ProcessInfo;
 // The preallocation size for the write request pool. This should be big
 // enough to satisfy most write requests. It must be a power of 2.
 const WRITE_REQ_PREALLOC = std.math.pow(usize, 2, 5);
+
+/// wasi has no processes or pty, so the exec backend is never constructed there
+/// and its arms are compiled out.
+const has_exec = builtin.os.tag != .wasi;
 
 /// The kinds of backends.
 pub const Kind = enum { exec, callback };
@@ -30,14 +35,14 @@ pub const Backend = union(Kind) {
 
     pub fn deinit(self: *Backend) void {
         switch (self.*) {
-            .exec => |*exec| exec.deinit(),
+            .exec => |*exec| if (comptime has_exec) exec.deinit() else unreachable,
             .callback => |*cb| cb.deinit(),
         }
     }
 
     pub fn initTerminal(self: *Backend, t: *terminal.Terminal) void {
         switch (self.*) {
-            .exec => |*exec| exec.initTerminal(t),
+            .exec => |*exec| if (comptime has_exec) exec.initTerminal(t) else unreachable,
             .callback => |*cb| cb.initTerminal(t),
         }
     }
@@ -49,14 +54,14 @@ pub const Backend = union(Kind) {
         td: *termio.Termio.ThreadData,
     ) !void {
         switch (self.*) {
-            .exec => |*exec| try exec.threadEnter(alloc, io, td),
+            .exec => |*exec| if (comptime has_exec) try exec.threadEnter(alloc, io, td) else unreachable,
             .callback => |*cb| try cb.threadEnter(alloc, io, td),
         }
     }
 
     pub fn threadExit(self: *Backend, td: *termio.Termio.ThreadData) void {
         switch (self.*) {
-            .exec => |*exec| exec.threadExit(td),
+            .exec => |*exec| if (comptime has_exec) exec.threadExit(td) else unreachable,
             .callback => |*cb| cb.threadExit(td),
         }
     }
@@ -67,7 +72,7 @@ pub const Backend = union(Kind) {
         focused: bool,
     ) !void {
         switch (self.*) {
-            .exec => |*exec| try exec.focusGained(td, focused),
+            .exec => |*exec| if (comptime has_exec) try exec.focusGained(td, focused) else unreachable,
             .callback => |*cb| try cb.focusGained(td, focused),
         }
     }
@@ -78,7 +83,7 @@ pub const Backend = union(Kind) {
         screen_size: renderer.ScreenSize,
     ) !void {
         switch (self.*) {
-            .exec => |*exec| try exec.resize(grid_size, screen_size),
+            .exec => |*exec| if (comptime has_exec) try exec.resize(grid_size, screen_size) else unreachable,
             .callback => |*cb| try cb.resize(grid_size, screen_size),
         }
     }
@@ -91,7 +96,7 @@ pub const Backend = union(Kind) {
         linefeed: bool,
     ) !void {
         switch (self.*) {
-            .exec => |*exec| try exec.queueWrite(alloc, td, data, linefeed),
+            .exec => |*exec| if (comptime has_exec) try exec.queueWrite(alloc, td, data, linefeed) else unreachable,
             .callback => |*cb| try cb.queueWrite(alloc, td, data, linefeed),
         }
     }
@@ -104,12 +109,12 @@ pub const Backend = union(Kind) {
         runtime_ms: u64,
     ) !void {
         switch (self.*) {
-            .exec => |*exec| try exec.childExitedAbnormally(
+            .exec => |*exec| if (comptime has_exec) try exec.childExitedAbnormally(
                 gpa,
                 t,
                 exit_code,
                 runtime_ms,
-            ),
+            ) else unreachable,
             .callback => |*cb| try cb.childExitedAbnormally(
                 gpa,
                 t,
@@ -124,7 +129,7 @@ pub const Backend = union(Kind) {
     /// is not available on a particular platform.
     pub fn getProcessInfo(self: *Backend, comptime info: ProcessInfo) ?ProcessInfo.Type(info) {
         return switch (self.*) {
-            .exec => |*exec| exec.getProcessInfo(info),
+            .exec => |*exec| if (comptime has_exec) exec.getProcessInfo(info) else unreachable,
             .callback => null,
         };
     }
@@ -137,7 +142,7 @@ pub const ThreadData = union(Kind) {
 
     pub fn deinit(self: *ThreadData, alloc: Allocator) void {
         switch (self.*) {
-            .exec => |*exec| exec.deinit(alloc),
+            .exec => |*exec| if (comptime has_exec) exec.deinit(alloc) else unreachable,
             .callback => |*cb| cb.deinit(alloc),
         }
     }

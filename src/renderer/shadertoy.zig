@@ -2,8 +2,10 @@ const std = @import("std");
 const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
-const glslang = @import("glslang");
-const spvcross = @import("spirv_cross");
+// glslang and spirv-cross are not built for wasi, so custom shaders are unavailable there.
+const has_compiler = builtin.os.tag != .wasi;
+const glslang = if (has_compiler) @import("glslang") else void;
+const spvcross = if (has_compiler) @import("spirv_cross") else void;
 const configpkg = @import("../config.zig");
 const compat_file = @import("../lib/compat/file.zig");
 const global = @import("../global.zig");
@@ -82,6 +84,8 @@ pub fn loadFromFile(
     path: []const u8,
     target: Target,
 ) ![:0]const u8 {
+    if (comptime !has_compiler) return error.CustomShadersUnsupported;
+
     var arena = ArenaAllocator.init(alloc_gpa);
     defer arena.deinit();
     const alloc = arena.allocator();

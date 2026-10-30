@@ -81,7 +81,7 @@ pub const Artifact = enum {
     wasm_module,
 
     pub fn detect() Artifact {
-        if (builtin.target.cpu.arch.isWasm()) {
+        if (builtin.target.cpu.arch.isWasm() and builtin.target.os.tag == .freestanding) {
             assert(builtin.output_mode == .Obj);
             assert(builtin.link_mode == .Static);
             return .wasm_module;

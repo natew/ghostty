@@ -32,7 +32,7 @@ pub const Library = library.Library;
 
 // If we're targeting wasm then we export some wasm APIs.
 comptime {
-    if (builtin.target.cpu.arch.isWasm()) {
+    if ((builtin.target.cpu.arch.isWasm() and builtin.target.os.tag == .freestanding)) {
         _ = Atlas.Wasm;
         _ = DeferredFace.Wasm;
         _ = face.web_canvas.Wasm;
@@ -47,7 +47,7 @@ pub const options: struct {
     // TODO: we need to modify the build config for wasm builds. the issue
     // is we're sharing the build config options between all exes in build.zig.
     // We need to construct it per target.
-    .backend = if (builtin.target.cpu.arch.isWasm()) .web_canvas else build_config.font_backend,
+    .backend = if ((builtin.target.cpu.arch.isWasm() and builtin.target.os.tag == .freestanding)) .web_canvas else build_config.font_backend,
 };
 
 /// The styles that a family can take.
@@ -74,7 +74,7 @@ pub const default_fallback_adjustment: Collection.SizeAdjustment = .ic_width;
 
 test {
     // For non-wasm we want to test everything we can
-    if (!comptime builtin.target.cpu.arch.isWasm()) {
+    if (!comptime (builtin.target.cpu.arch.isWasm() and builtin.target.os.tag == .freestanding)) {
         @import("std").testing.refAllDecls(@This());
         return;
     }

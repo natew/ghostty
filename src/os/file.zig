@@ -12,6 +12,7 @@ pub const rlimit = if (@hasDecl(posix.system, "rlimit")) posix.rlimit else struc
 /// need to do this because each window consumes at least a handful of fds.
 /// This is extracted from the Zig compiler source code.
 pub fn fixMaxFiles() ?rlimit {
+    if (comptime builtin.os.tag == .wasi) return null;
     if (!@hasDecl(posix.system, "rlimit") or
         posix.system.rlimit == void) return null;
 

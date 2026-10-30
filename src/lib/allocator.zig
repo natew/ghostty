@@ -32,7 +32,7 @@ pub fn default(c_alloc_: ?*const Allocator) std.mem.Allocator {
     if (comptime builtin.link_libc) return std.heap.c_allocator;
 
     // Wasm
-    if (comptime builtin.target.cpu.arch.isWasm()) return std.heap.wasm_allocator;
+    if (comptime (builtin.target.cpu.arch.isWasm() and builtin.target.os.tag == .freestanding)) return std.heap.wasm_allocator;
 
     // No libc, use the preferred allocator for releases which is the
     // Zig SMP allocator.

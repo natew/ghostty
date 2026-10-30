@@ -4,7 +4,7 @@ const builtin = @import("builtin");
 const options = @import("build_options");
 
 comptime {
-    if (!builtin.target.cpu.arch.isWasm()) {
+    if (!(builtin.target.cpu.arch.isWasm() and builtin.target.os.tag == .freestanding)) {
         @compileError("wasm.zig should only be analyzed for wasm32 builds");
     }
 }

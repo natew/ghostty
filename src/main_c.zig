@@ -43,7 +43,7 @@ comptime {
 
     // Our benchmark API. We probably want to gate this on a build
     // config in the future but for now we always just export it.
-    _ = @import("benchmark/main.zig").CApi;
+    if (builtin.os.tag != .wasi) _ = @import("benchmark/main.zig").CApi;
 
     // Force-reference our memset override so its export is emitted.
     // See quirks_memset.zig for details on why this exists.
@@ -137,6 +137,9 @@ pub export fn ghostty_init(argc: usize, argv: [*][*:0]u8) c_int {
 /// Runs an action if it is specified. If there is no action this returns
 /// false. If there is an action then this doesn't return.
 pub export fn ghostty_cli_try_action() void {
+    // wasi has no argv, so there is never a CLI action to run
+    if (comptime builtin.os.tag == .wasi) return;
+
     const action = global.action() orelse return;
     std.log.info("executing CLI action={}", .{action});
     posix.system.exit(action.run(global.alloc()) catch |err| {

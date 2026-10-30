@@ -4721,7 +4721,7 @@ pub fn finalize(self: *Config) !void {
     // If we are missing either a command or home directory, we need
     // to look up defaults which is kind of expensive. We only do this
     // on desktop.
-    if ((comptime !builtin.target.cpu.arch.isWasm()) and
+    if ((comptime !(builtin.target.cpu.arch.isWasm() and builtin.target.os.tag == .freestanding)) and
         (comptime !builtin.is_test))
     {
         if (self.command == null or wd == .home) command: {

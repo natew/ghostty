@@ -11,13 +11,13 @@ const log = std.log.scoped(.passwd);
 
 // We want to be extra sure since this will force bad symbols into our import table
 comptime {
-    if (builtin.target.cpu.arch.isWasm()) {
+    if ((builtin.target.cpu.arch.isWasm() and builtin.target.os.tag == .freestanding)) {
         @compileError("passwd is not available for wasm");
     }
 }
 
 /// Used to determine the default shell and directory on Unixes.
-const c = if (builtin.os.tag != .windows) @cImport({
+const c = if (builtin.os.tag != .windows and builtin.os.tag != .wasi) @cImport({
     @cInclude("sys/types.h");
     @cInclude("unistd.h");
     @cInclude("pwd.h");
@@ -34,6 +34,9 @@ pub const Entry = struct {
 /// Get the passwd entry for the currently executing user.
 pub fn get(alloc: Allocator) !Entry {
     if (builtin.os.tag == .windows) @compileError("passwd is not available on windows");
+
+    // wasi has no user database; the caller falls back to the inherited shell and directory
+    if (comptime builtin.os.tag == .wasi) return Entry{};
 
     var buf: [1024]u8 = undefined;
     var pw: c.struct_passwd = undefined;

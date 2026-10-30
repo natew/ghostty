@@ -34,6 +34,7 @@ const log = std.log.scoped(.page);
 /// performance-critical and the OS guarantees zeroed pages.
 const PageAlloc = switch (builtin.os.tag) {
     .windows => AllocWindows,
+    .wasi => AllocWasi,
     else => AllocPosix,
 };
 
@@ -53,6 +54,20 @@ const AllocPosix = struct {
 
     pub fn free(mem: []align(std.heap.page_size_min) u8) void {
         posix.munmap(mem);
+    }
+};
+
+/// wasi has no mmap: take pages from the wasm allocator (memory.grow) and
+/// zero them explicitly since freed pages are reused.
+const AllocWasi = struct {
+    pub fn alloc(n: usize) error{OutOfMemory}![]align(std.heap.page_size_min) u8 {
+        const mem = try std.heap.wasm_allocator.alignedAlloc(u8, .fromByteUnits(std.heap.page_size_min), n);
+        @memset(mem, 0);
+        return mem;
+    }
+
+    pub fn free(mem: []align(std.heap.page_size_min) u8) void {
+        std.heap.wasm_allocator.free(mem);
     }
 };
 

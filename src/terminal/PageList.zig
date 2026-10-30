@@ -313,7 +313,7 @@ const std_size = Page.layout(std_capacity).total_size;
 ///
 /// Test builds use the std pool even on wasm so that pool memory goes
 /// through the testing allocator and participates in leak detection.
-const wasm_page_pool = builtin.target.cpu.arch.isWasm() and !builtin.is_test;
+const wasm_page_pool = (builtin.target.cpu.arch.isWasm() and builtin.target.os.tag == .freestanding) and !builtin.is_test;
 
 /// The memory pool we use for page memory buffers. We use a separate pool
 /// so we can allocate these with a page allocator. We have to use a page

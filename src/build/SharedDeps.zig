@@ -362,8 +362,10 @@ pub fn add(
         }
     }
 
+    const wasi = step.rootModuleTarget().os.tag == .wasi;
+
     // Glslang
-    if (b.lazyDependency("glslang", .{
+    if (if (wasi) null else b.lazyDependency("glslang", .{
         .target = target,
         .optimize = optimize,
     })) |glslang_dep| {
@@ -384,7 +386,7 @@ pub fn add(
     }
 
     // Spirv-cross
-    if (b.lazyDependency("spirv_cross", .{
+    if (if (wasi) null else b.lazyDependency("spirv_cross", .{
         .target = target,
         .optimize = optimize,
     })) |spirv_cross_dep| {
@@ -441,7 +443,7 @@ pub fn add(
     );
 
     // Wasm we do manually since it is such a different build.
-    if (step.rootModuleTarget().cpu.arch == .wasm32) {
+    if (step.rootModuleTarget().cpu.arch == .wasm32 and !wasi) {
         if (b.lazyDependency("zig_js", .{
             .target = target,
             .optimize = optimize,

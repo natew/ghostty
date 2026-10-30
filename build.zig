@@ -124,69 +124,70 @@ pub fn build(b: *std.Build) !void {
         check_step.dependOn(dist.install_step);
     }
 
-    // libghostty-vt
-    const libghostty_vt_shared = shared: {
-        if (config.target.result.cpu.arch.isWasm()) {
-            break :shared try buildpkg.GhosttyLibVt.initWasm(
+    if (config.target.result.os.tag != .wasi) {
+        // libghostty-vt
+        const libghostty_vt_shared = shared: {
+            if (config.target.result.cpu.arch.isWasm()) {
+                break :shared try buildpkg.GhosttyLibVt.initWasm(
+                    b,
+                    &mod,
+                );
+            }
+
+            break :shared try buildpkg.GhosttyLibVt.initShared(
                 b,
                 &mod,
             );
+        };
+        libghostty_vt_shared.install(b.getInstallStep());
+
+        const type_schema_test = b.addSystemCommand(&.{"python3"});
+        type_schema_test.addFileArg(b.path("src/terminal/c/types-schema-verify.py"));
+        type_schema_test.addFileArg(b.path("src/terminal/c/types.schema.json"));
+        type_schema_test.addFileArg(libghostty_vt_shared.output);
+        test_lib_vt_schema_step.dependOn(&type_schema_test.step);
+
+        // libghostty-vt static lib
+        const libghostty_vt_static = try buildpkg.GhosttyLibVt.initStatic(
+            b,
+            &mod,
+        );
+        if (config.is_dep) {
+            // If we're a dependency, we need to install everything as-is
+            // so that dep.artifact("ghostty-vt-static") works.
+            libghostty_vt_static.install(b.getInstallStep());
+        } else {
+            // If we're not a dependency, we rename the static lib to
+            // be idiomatic. On Windows, we use a distinct name to avoid
+            // colliding with the DLL import library (ghostty-vt.lib).
+            const static_lib_name = if (config.target.result.os.tag == .windows)
+                "ghostty-vt-static.lib"
+            else
+                "libghostty-vt.a";
+            b.getInstallStep().dependOn(&b.addInstallLibFile(
+                libghostty_vt_static.output,
+                static_lib_name,
+            ).step);
         }
 
-        break :shared try buildpkg.GhosttyLibVt.initShared(
-            b,
-            &mod,
-        );
-    };
-    libghostty_vt_shared.install(b.getInstallStep());
-
-    const type_schema_test = b.addSystemCommand(&.{"python3"});
-    type_schema_test.addFileArg(b.path("src/terminal/c/types-schema-verify.py"));
-    type_schema_test.addFileArg(b.path("src/terminal/c/types.schema.json"));
-    type_schema_test.addFileArg(libghostty_vt_shared.output);
-    test_lib_vt_schema_step.dependOn(&type_schema_test.step);
-
-    // libghostty-vt static lib
-    const libghostty_vt_static = try buildpkg.GhosttyLibVt.initStatic(
-        b,
-        &mod,
-    );
-    if (config.is_dep) {
-        // If we're a dependency, we need to install everything as-is
-        // so that dep.artifact("ghostty-vt-static") works.
-        libghostty_vt_static.install(b.getInstallStep());
-    } else {
-        // If we're not a dependency, we rename the static lib to
-        // be idiomatic. On Windows, we use a distinct name to avoid
-        // colliding with the DLL import library (ghostty-vt.lib).
-        const static_lib_name = if (config.target.result.os.tag == .windows)
-            "ghostty-vt-static.lib"
-        else
-            "libghostty-vt.a";
-        b.getInstallStep().dependOn(&b.addInstallLibFile(
-            libghostty_vt_static.output,
-            static_lib_name,
-        ).step);
+        // libghostty-vt xcframework (Apple only, universal binary).
+        // Only when building on macOS (not cross-compiling) since
+        // xcodebuild is required.
+        if (config.emit_lib_vt and
+            config.emit_xcframework and
+            builtin.os.tag.isDarwin() and
+            config.target.result.os.tag.isDarwin())
+        {
+            const apple_libs = try buildpkg.GhosttyLibVt.initStaticAppleUniversal(
+                b,
+                &config,
+                &deps,
+                &mod,
+            );
+            const xcframework = buildpkg.GhosttyLibVt.xcframework(&apple_libs, b);
+            b.getInstallStep().dependOn(xcframework.step);
+        }
     }
-
-    // libghostty-vt xcframework (Apple only, universal binary).
-    // Only when building on macOS (not cross-compiling) since
-    // xcodebuild is required.
-    if (config.emit_lib_vt and
-        config.emit_xcframework and
-        builtin.os.tag.isDarwin() and
-        config.target.result.os.tag.isDarwin())
-    {
-        const apple_libs = try buildpkg.GhosttyLibVt.initStaticAppleUniversal(
-            b,
-            &config,
-            &deps,
-            &mod,
-        );
-        const xcframework = buildpkg.GhosttyLibVt.xcframework(&apple_libs, b);
-        b.getInstallStep().dependOn(xcframework.step);
-    }
-
     // Helpgen
     if (config.emit_helpgen) deps.help_strings.install();
 
@@ -203,12 +204,15 @@ pub fn build(b: *std.Build) !void {
         // This is NOT libghostty (even though its named that for historical
         // reasons). It is just the glue between Ghostty GUI on macOS and
         // the full Ghostty GUI core.
-        const lib_shared = try buildpkg.GhosttyLib.initShared(b, &deps);
         const lib_static = try buildpkg.GhosttyLib.initStatic(b, &deps);
 
-        // We shouldn't have this guard but we don't currently
-        // build on macOS this way ironically so we need to fix that.
-        if (!config.target.result.os.tag.isDarwin()) {
+        // wasi links statically into the guest: a wasm shared library would
+        // need its own libc build and is never loaded.
+        if (config.target.result.os.tag == .wasi) {
+            lib_static.install("ghostty-internal.a");
+        } else if (!config.target.result.os.tag.isDarwin()) {
+            const lib_shared = try buildpkg.GhosttyLib.initShared(b, &deps);
+
             lib_shared.installHeader(); // Only need one header
             if (config.target.result.os.tag == .windows) {
                 lib_shared.install("ghostty-internal.dll");

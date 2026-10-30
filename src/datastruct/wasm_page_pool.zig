@@ -50,7 +50,7 @@ pub fn WasmPagePool(comptime Item: type) type {
         const Self = @This();
 
         comptime {
-            if (builtin.target.cpu.arch.isWasm()) {
+            if ((builtin.target.cpu.arch.isWasm() and builtin.target.os.tag == .freestanding)) {
                 // The shared free list (and wasm's single linear
                 // memory) requires a single-threaded target.
                 assert(builtin.single_threaded);
@@ -131,7 +131,7 @@ pub fn WasmPagePool(comptime Item: type) type {
 }
 
 test WasmPagePool {
-    if (!comptime builtin.target.cpu.arch.isWasm()) return error.SkipZigTest;
+    if (!comptime (builtin.target.cpu.arch.isWasm() and builtin.target.os.tag == .freestanding)) return error.SkipZigTest;
 
     const testing = std.testing;
     const Pool = WasmPagePool([64 * 1024]u8);

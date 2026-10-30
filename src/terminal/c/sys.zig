@@ -246,7 +246,7 @@ pub fn logStderr(
     message_ptr: [*]const u8,
     message_len: usize,
 ) callconv(lib.calling_conv) void {
-    if (comptime builtin.target.cpu.arch.isWasm()) return;
+    if (comptime (builtin.target.cpu.arch.isWasm() and builtin.target.os.tag == .freestanding)) return;
 
     const scope = scope_ptr[0..scope_len];
     const message = message_ptr[0..message_len];

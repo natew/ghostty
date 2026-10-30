@@ -57,6 +57,9 @@ pub fn build(b: *std.Build) !void {
         "-DIMGUI_HAS_DOCK=1",
         "-DIMGUI_USE_WCHAR32=1",
         "-DIMGUI_DISABLE_OBSOLETE_FUNCTIONS=1",
+        "-DIMGUI_DISABLE_DEFAULT_SHELL_FUNCTIONS=1",
+        "-D_WASI_EMULATED_SIGNAL",
+        "-D_WASI_EMULATED_PROCESS_CLOCKS",
     });
     if (target.result.abi == .msvc) {
         try flags.appendSlice(b.allocator, &.{
