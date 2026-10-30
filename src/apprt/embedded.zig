@@ -2507,55 +2507,55 @@ pub const CAPI = struct {
                 ptr.backend = null;
             }
         }
-
-        // =========================================================================
-        // Custom I/O API - For SSH clients and other external I/O sources
-        // =========================================================================
-
-        /// The callback function type for writing data from terminal to external source.
-        pub const WriteFn = termio.Callback.WriteFn;
-
-        /// Feed data into the terminal for display (e.g., SSH channel output).
-        /// This is the "output" from the remote source that should be rendered.
-        export fn ghostty_surface_feed_data(
-            ptr: *Surface,
-            data: [*]const u8,
-            len: usize,
-        ) void {
-            if (len == 0) return;
-
-            const io = &ptr.core_surface.io;
-            const owned = io.alloc.dupe(u8, data[0..len]) catch |err| {
-                log.err("failed to queue custom I/O data len={} err={}", .{ len, err });
-                return;
-            };
-            io.queueMessage(.{
-                .feed_data = .{
-                    .alloc = io.alloc,
-                    .data = owned,
-                },
-            }, .unlocked);
-        }
-
-        /// Set the write callback for custom I/O backend.
-        /// This callback is invoked when the terminal wants to send data
-        /// (e.g., keyboard input that should go to SSH channel).
-        export fn ghostty_surface_set_write_callback(
-            ptr: *Surface,
-            write_fn: ?WriteFn,
-            userdata: ?*anyopaque,
-        ) void {
-            // Access the termio and set callback on its backend thread data
-            // This requires the IO thread to be running
-            const io = &ptr.core_surface.io;
-
-            // Send a message to the IO thread to update the callback
-            io.queueMessage(.{
-                .set_write_callback = .{
-                    .write_fn = write_fn,
-                    .userdata = userdata,
-                },
-            }, .unlocked);
-        }
     };
+
+    // =========================================================================
+    // Custom I/O API - For SSH clients and other external I/O sources
+    // =========================================================================
+
+    /// The callback function type for writing data from terminal to external source.
+    pub const WriteFn = termio.Callback.WriteFn;
+
+    /// Feed data into the terminal for display (e.g., SSH channel output).
+    /// This is the "output" from the remote source that should be rendered.
+    export fn ghostty_surface_feed_data(
+        ptr: *Surface,
+        data: [*]const u8,
+        len: usize,
+    ) void {
+        if (len == 0) return;
+
+        const io = &ptr.core_surface.io;
+        const owned = io.alloc.dupe(u8, data[0..len]) catch |err| {
+            log.err("failed to queue custom I/O data len={} err={}", .{ len, err });
+            return;
+        };
+        io.queueMessage(.{
+            .feed_data = .{
+                .alloc = io.alloc,
+                .data = owned,
+            },
+        }, .unlocked);
+    }
+
+    /// Set the write callback for custom I/O backend.
+    /// This callback is invoked when the terminal wants to send data
+    /// (e.g., keyboard input that should go to SSH channel).
+    export fn ghostty_surface_set_write_callback(
+        ptr: *Surface,
+        write_fn: ?WriteFn,
+        userdata: ?*anyopaque,
+    ) void {
+        // Access the termio and set callback on its backend thread data
+        // This requires the IO thread to be running
+        const io = &ptr.core_surface.io;
+
+        // Send a message to the IO thread to update the callback
+        io.queueMessage(.{
+            .set_write_callback = .{
+                .write_fn = write_fn,
+                .userdata = userdata,
+            },
+        }, .unlocked);
+    }
 };
