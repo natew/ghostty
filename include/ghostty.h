@@ -70,6 +70,7 @@ typedef enum {
   GHOSTTY_PLATFORM_INVALID,
   GHOSTTY_PLATFORM_MACOS,
   GHOSTTY_PLATFORM_IOS,
+  GHOSTTY_PLATFORM_WASI,
 } ghostty_platform_e;
 
 // Callback for custom surface I/O writes.
@@ -499,9 +500,14 @@ typedef struct {
   void* uiview;
 } ghostty_platform_ios_s;
 
+typedef struct {
+  void* reserved;
+} ghostty_platform_wasi_s;
+
 typedef union {
   ghostty_platform_macos_s macos;
   ghostty_platform_ios_s ios;
+  ghostty_platform_wasi_s wasi;
 } ghostty_platform_u;
 
 typedef enum {
