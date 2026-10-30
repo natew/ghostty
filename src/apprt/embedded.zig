@@ -433,7 +433,11 @@ pub const Platform = union(PlatformTag) {
                 const uiview = objc.Object.fromId(config.uiview orelse
                     break :ios error.UIViewMustBeSet);
                 break :ios .{ .ios = .{ .uiview = uiview } };
-            } else error.UnsupportedPlatform,
+            } else if (Wasi != void)
+                // unpatched ios embedders pass the ios tag and a view the wasi host never uses
+                .{ .wasi = .{} }
+            else
+                error.UnsupportedPlatform,
 
             .wasi => if (Wasi != void) .{ .wasi = .{} } else error.UnsupportedPlatform,
         };
