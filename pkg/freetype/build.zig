@@ -86,6 +86,13 @@ fn buildLib(b: *std.Build, module: *std.Build.Module, options: anytype) !*std.Bu
 
         "-fno-sanitize=undefined",
     });
+    if (target.result.os.tag == .wasi) {
+        try flags.appendSlice(b.allocator, &.{
+            "-fwasm-exceptions",
+            "-mllvm",
+            "-wasm-enable-sjlj",
+        });
+    }
     if (target.result.os.tag != .windows) {
         try flags.appendSlice(b.allocator, &.{
             "-DHAVE_UNISTD_H",
