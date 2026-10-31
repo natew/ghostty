@@ -11,6 +11,6 @@ for f in zig-pkg/libxev-*/build.zig; do
   perl -pi -e 's/^    const examples = try buildExamples\(b, target, optimize, static_lib\);/    const examples: []const *Step.Compile = if (target.result.os.tag == .wasi) &.{} else try buildExamples(b, target, optimize, static_lib);/' "$f"
 done
 exec zig build -Dtarget=wasm32-wasi -Dcpu=generic+exception_handling -Dapp-runtime=none \
-  -Dfont-backend=freetype -Drenderer=headless -Dsentry=false -Demit-exe=false -Demit-docs=false \
+  -Dfont-backend=freetype -Drenderer=raster -Dsentry=false -Demit-exe=false -Demit-docs=false \
   -Demit-webdata=false -Demit-helpgen=false -Demit-terminfo=false -Demit-termcap=false \
   -Demit-themes=false -Demit-xcframework=false -Doptimize=${OPT:-ReleaseSmall} --summary failures "$@"

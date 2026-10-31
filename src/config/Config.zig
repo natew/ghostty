@@ -522,7 +522,8 @@ language: ?[:0]const u8 = null,
 ///
 /// Available flags:
 ///
-///   * `hinting` - Enable or disable hinting. Enabled by default.
+///   * `hinting` - Enable or disable hinting. Enabled by default, except on
+///     wasi, which draws unhinted like the CoreText build it stands in for.
 ///
 ///   * `force-autohint` - Always use the freetype auto-hinter instead of
 ///     the font's native hinter. Disabled by default.
@@ -9763,7 +9764,7 @@ pub const FreetypeLoadFlags = packed struct {
     // own default, but appears to be the effective default with most
     // Fontconfig-aware software using FreeType, so until Ghostty
     // implements Fontconfig support we default to `light`.)
-    hinting: bool = true,
+    hinting: bool = builtin.os.tag != .wasi,
     @"force-autohint": bool = false,
     monochrome: bool = false,
     autohint: bool = true,

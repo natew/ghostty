@@ -6,13 +6,13 @@ pub const Backend = enum {
     opengl,
     metal,
     webgl,
-    headless,
+    raster,
 
     pub fn default(
         target: std.Target,
         wasm_target: WasmTarget,
     ) Backend {
-        if (target.os.tag == .wasi) return .headless;
+        if (target.os.tag == .wasi) return .raster;
 
         if (target.cpu.arch == .wasm32) {
             return switch (wasm_target) {

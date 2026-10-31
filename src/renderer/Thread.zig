@@ -104,6 +104,10 @@ flags: packed struct {
     focused: bool = true,
 } = .{},
 
+/// Set while the thread has no OS thread behind it: the embedder pumps the
+/// loop on its own thread (see `startCooperative`).
+cooperative: bool = false,
+
 pub const DerivedConfig = struct {
     scrollback_compression: bool,
 
@@ -260,6 +264,51 @@ fn threadMain_(self: *Thread) !void {
     log.debug("starting renderer thread", .{});
     defer log.debug("starting renderer thread shutdown", .{});
     _ = try self.loop.run(.until_done);
+}
+
+/// Start this thread's work on the caller's thread for a target that has no
+/// threads. Everything `threadMain_` does up to running the loop happens
+/// here; `pump` then runs the loop without blocking and `stopCooperative`
+/// ends it.
+pub fn startCooperative(self: *Thread) !void {
+    const has_loop = @hasDecl(rendererpkg.Renderer, "loopEnter");
+    if (has_loop) try self.renderer.loopEnter(self);
+    errdefer if (has_loop) self.renderer.loopExit();
+    try self.renderer.threadEnter(self.surface);
+
+    self.wakeup.wait(&self.loop, &self.wakeup_c, Thread, self, wakeupCallback);
+    self.stop.wait(&self.loop, &self.stop_c, Thread, self, stopCallback);
+    self.draw_now.wait(&self.loop, &self.draw_now_c, Thread, self, drawNowCallback);
+    try self.wakeup.notify();
+    self.cursor_h.run(
+        &self.loop,
+        &self.cursor_c,
+        cursorBlinkInterval(),
+        Thread,
+        self,
+        cursorTimerCallback,
+    );
+    self.armAnimationTimer();
+    self.cooperative = true;
+}
+
+/// Run every ready event on the loop, then return.
+pub fn pump(self: *Thread) void {
+    if (!self.cooperative) return;
+    self.loop.run(.no_wait) catch |err| {
+        log.warn("error pumping renderer loop err={}", .{err});
+    };
+}
+
+/// Stop the loop as `threadMain_` does when it ends. The caller stays the
+/// rendering thread, as a threaded surface becomes again before deinit.
+pub fn stopCooperative(self: *Thread) void {
+    if (!self.cooperative) return;
+    self.stop.notify() catch |err|
+        log.err("error notifying renderer thread to stop err={}", .{err});
+    self.pump();
+    if (@hasDecl(rendererpkg.Renderer, "loopEnter")) self.renderer.loopExit();
+    self.cooperative = false;
 }
 
 fn setQosClass(self: *const Thread) void {

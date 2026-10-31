@@ -737,8 +737,9 @@ pub fn init(
     try renderer_impl.finalizeSurfaceInit(rt_surface);
 
     if (comptime builtin.single_threaded) {
-        // a target without threads has no renderer thread: the embedder draws
-        // from `draw`. IO runs on the embedder's thread, pumped by `pumpIo`.
+        // a target without threads runs the renderer and io loops on the
+        // embedder's thread, pumped by `pump`.
+        try self.renderer_thread.startCooperative();
         try self.io_thread.startCooperative(&self.io);
     } else {
         // Start our renderer thread
@@ -823,6 +824,7 @@ pub fn deinit(self: *Surface) void {
     if (self.search) |*s| s.deinit();
 
     if (comptime builtin.single_threaded) {
+        self.renderer_thread.stopCooperative();
         self.io_thread.stopCooperative();
     } else {
         // Stop rendering thread
@@ -872,11 +874,12 @@ pub fn deinit(self: *Surface) void {
     log.info("surface closed id={x}", .{self.id});
 }
 
-/// Run the io thread's pending work on the calling thread. Only targets
-/// without threads need this; the app tick and the custom I/O entry points
-/// call it.
-pub fn pumpIo(self: *Surface) void {
+/// Run the io and renderer threads' pending work on the calling thread, io
+/// first so the renderer sees its output. Only targets without threads need
+/// this; the app tick, `draw` and the custom I/O entry points call it.
+pub fn pump(self: *Surface) void {
     self.io_thread.pump();
+    self.renderer_thread.pump();
 }
 
 /// Close this surface. This will trigger the runtime to start the
@@ -926,6 +929,7 @@ fn queueIo(
 pub fn draw(self: *Surface) !void {
     // Renderers are required to support `drawFrame` being called from
     // the main thread, so that they can update contents during resize.
+    if (comptime builtin.single_threaded) self.pump();
     try self.renderer.drawFrame(true);
 }
 

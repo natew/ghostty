@@ -383,7 +383,6 @@ pub const App = struct {
 pub const Platform = union(PlatformTag) {
     macos: MacOS,
     ios: IOS,
-    wasi: Wasi,
 
     // If our build target for libghostty is not darwin then we do
     // not include macos support at all.
@@ -395,11 +394,12 @@ pub const Platform = union(PlatformTag) {
     pub const IOS = if (builtin.target.os.tag.isDarwin()) struct {
         /// The view to render the surface on.
         uiview: objc.Object,
+    } else if (builtin.target.os.tag == .wasi) struct {
+        /// The view to render the surface on. A wasi guest has no Objective-C
+        /// runtime, so the raster renderer reaches it through the Peach
+        /// hosted layer C API instead.
+        uiview: *anyopaque,
     } else void;
-
-    // A wasi host has no native view to render on: the embedder draws the
-    // surface itself.
-    pub const Wasi = if (builtin.target.os.tag == .wasi) struct {} else void;
 
     // The C ABI compatible version of this union. The tag is expected
     // to be stored elsewhere.
@@ -410,10 +410,6 @@ pub const Platform = union(PlatformTag) {
 
         ios: extern struct {
             uiview: ?*anyopaque,
-        },
-
-        wasi: extern struct {
-            reserved: ?*anyopaque,
         },
     };
 
@@ -430,16 +426,12 @@ pub const Platform = union(PlatformTag) {
 
             .ios => if (IOS != void) ios: {
                 const config = c_platform.ios;
-                const uiview = objc.Object.fromId(config.uiview orelse
-                    break :ios error.UIViewMustBeSet);
-                break :ios .{ .ios = .{ .uiview = uiview } };
-            } else if (Wasi != void)
-                // unpatched ios embedders pass the ios tag and a view the wasi host never uses
-                .{ .wasi = .{} }
-            else
-                error.UnsupportedPlatform,
-
-            .wasi => if (Wasi != void) .{ .wasi = .{} } else error.UnsupportedPlatform,
+                const uiview = config.uiview orelse break :ios error.UIViewMustBeSet;
+                break :ios .{ .ios = .{ .uiview = if (comptime builtin.target.os.tag.isDarwin())
+                    objc.Object.fromId(uiview)
+                else
+                    uiview } };
+            } else error.UnsupportedPlatform,
         };
     }
 };
@@ -450,7 +442,6 @@ pub const PlatformTag = enum(c_int) {
 
     macos = 1,
     ios = 2,
-    wasi = 3,
 };
 
 pub const EnvVar = extern struct {
@@ -1913,7 +1904,7 @@ pub const CAPI = struct {
         sel: Selection,
         result: *Text,
     ) bool {
-        if (comptime builtin.single_threaded) surface.core_surface.pumpIo();
+        if (comptime builtin.single_threaded) surface.core_surface.pump();
         surface.core_surface.renderer_state.mutex.lockUncancelable(global.io());
         defer surface.core_surface.renderer_state.mutex.unlock(global.io());
 
@@ -1978,7 +1969,7 @@ pub const CAPI = struct {
     /// to the pty and the renderer.
     export fn ghostty_surface_set_size(surface: *Surface, w: u32, h: u32) void {
         surface.updateSize(w, h);
-        if (comptime builtin.single_threaded) surface.core_surface.pumpIo();
+        if (comptime builtin.single_threaded) surface.core_surface.pump();
     }
 
     /// Return the size information a surface has.
@@ -2554,7 +2545,7 @@ pub const CAPI = struct {
                 .data = owned,
             },
         }, .unlocked);
-        if (comptime builtin.single_threaded) ptr.core_surface.pumpIo();
+        if (comptime builtin.single_threaded) ptr.core_surface.pump();
     }
 
     /// Set the write callback for custom I/O backend.
@@ -2576,6 +2567,6 @@ pub const CAPI = struct {
                 .userdata = userdata,
             },
         }, .unlocked);
-        if (comptime builtin.single_threaded) ptr.core_surface.pumpIo();
+        if (comptime builtin.single_threaded) ptr.core_surface.pump();
     }
 };
