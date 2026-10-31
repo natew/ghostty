@@ -497,10 +497,20 @@ pub const RenderPass = struct {
         if (cols == 0 or rows == 0) return;
         for (0..self.target.height) |y| {
             const row = gridIndex(center(y), u.grid_padding[0], u.cell_size[1], rows, u.padding_extend.up, u.padding_extend.down) orelse continue;
+            var last_col: i32 = -1;
+            var color: Color = @splat(0);
+            var solid_pixel: [4]u8 = undefined;
             for (0..self.target.width) |x| {
                 const col = gridIndex(center(x), u.grid_padding[3], u.cell_size[0], cols, u.padding_extend.left, u.padding_extend.right) orelse continue;
-                const cell = cells[@intCast(row * cols + col)];
-                self.blend(x, y, loadColor(cell, u.bools.use_display_p3, u.bools.use_linear_blending));
+                if (col != last_col) {
+                    last_col = col;
+                    color = loadColor(cells[@intCast(row * cols + col)], u.bools.use_display_p3, u.bools.use_linear_blending);
+                    if (color[3] == 1) solid_pixel = self.store(color);
+                }
+                // a cell has one fragment color across its covered pixels.
+                if (color[3] == 1) {
+                    self.pixel(x, y).* = solid_pixel;
+                } else self.blend(x, y, color);
             }
         }
     }
