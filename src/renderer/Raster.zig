@@ -495,12 +495,23 @@ pub const RenderPass = struct {
         const cols: i32 = u.grid_size[0];
         const rows: i32 = u.grid_size[1];
         if (cols == 0 or rows == 0) return;
+        var previous: ?CellBg = null;
+        var color: Color = undefined;
+        var encoded: [4]u8 = undefined;
         for (0..self.target.height) |y| {
             const row = gridIndex(center(y), u.grid_padding[0], u.cell_size[1], rows, u.padding_extend.up, u.padding_extend.down) orelse continue;
             for (0..self.target.width) |x| {
                 const col = gridIndex(center(x), u.grid_padding[3], u.cell_size[0], cols, u.padding_extend.left, u.padding_extend.right) orelse continue;
                 const cell = cells[@intCast(row * cols + col)];
-                self.blend(x, y, loadColor(cell, u.bools.use_display_p3, u.bools.use_linear_blending));
+                if (cell[3] == 0) continue;
+                if (previous == null or !std.meta.eql(previous.?, cell)) {
+                    previous = cell;
+                    color = loadColor(cell, u.bools.use_display_p3, u.bools.use_linear_blending);
+                    if (cell[3] == 255) encoded = self.store(color);
+                }
+                if (cell[3] == 255) {
+                    self.pixel(x, y).* = encoded;
+                } else self.blend(x, y, color);
             }
         }
     }
