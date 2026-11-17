@@ -562,6 +562,9 @@ pub const RenderPass = struct {
         var cached_bg_bits: u128 = undefined;
         var fragments: [256]Color = undefined;
         var cached_coverage = std.StaticBitSet(256).initEmpty();
+        var blended_coverage = std.StaticBitSet(256).initEmpty();
+        var destinations: [256][4]u8 = undefined;
+        var blended: [256][4]u8 = undefined;
         for (cells) |cell| {
             // cell_text_vertex
             const gx: f32 = @floatFromInt(cell.grid_pos[0]);
@@ -603,6 +606,7 @@ pub const RenderPass = struct {
                 cached_color_bits = @bitCast(gray.color);
                 cached_bg_bits = @bitCast(bg);
                 cached_coverage = std.StaticBitSet(256).initEmpty();
+                blended_coverage = std.StaticBitSet(256).initEmpty();
             }
             for (quad.y0..quad.y1) |y| for (quad.x0..quad.x1) |x| {
                 // tex_coord interpolates across the quad from glyph_pos to glyph_pos + glyph_size
@@ -611,11 +615,13 @@ pub const RenderPass = struct {
                     glyph[1] + (center(y) - quad.fy0) / (quad.fy1 - quad.fy0) * size[1],
                 };
                 // cell_text_fragment
+                var gray_coverage: u8 = 0;
                 const out: Color = switch (cell.atlas) {
                     .grayscale => gray: {
                         const atlas_x = clampIndex(@floor(coord[0]), grayscale.width);
                         const atlas_y = clampIndex(@floor(coord[1]), grayscale.height);
                         const coverage = grayscale.data[atlas_y * grayscale.width + atlas_x];
+                        gray_coverage = coverage;
                         if (cached_coverage.isSet(coverage)) break :gray fragments[coverage];
                         var a = unorm(coverage);
                         if (gray.correct) {
@@ -633,7 +639,21 @@ pub const RenderPass = struct {
                         break :colored unlinearizePremultiplied(c);
                     },
                 };
-                self.blend(x, y, out);
+                if (cell.atlas == .grayscale) {
+                    if (out[3] == 0 and out[0] == 0 and out[1] == 0 and out[2] == 0) continue;
+                    const pixel_ptr = self.pixel(x, y);
+                    const destination = pixel_ptr.*;
+                    if (blended_coverage.isSet(gray_coverage) and
+                        @as(u32, @bitCast(destinations[gray_coverage])) == @as(u32, @bitCast(destination)))
+                    {
+                        pixel_ptr.* = blended[gray_coverage];
+                    } else {
+                        self.blend(x, y, out);
+                        destinations[gray_coverage] = destination;
+                        blended[gray_coverage] = pixel_ptr.*;
+                        blended_coverage.set(gray_coverage);
+                    }
+                } else self.blend(x, y, out);
             };
         }
     }
