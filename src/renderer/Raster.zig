@@ -547,6 +547,20 @@ pub const RenderPass = struct {
 
             const glyph: [2]f32 = .{ @floatFromInt(cell.glyph_pos[0]), @floatFromInt(cell.glyph_pos[1]) };
             const quad = self.rasterRect(u, origin, .{ origin[0] + size[0], origin[1] + size[1] }) orelse continue;
+            const gray = if (cell.atlas == .grayscale) prepare: {
+                const c = if (u.bools.use_linear_blending) color else unlinearizePremultiplied(color);
+                const fg_l = luminance(c);
+                const bg_l = luminance(bg);
+                const correct = u.bools.use_linear_correction and @abs(fg_l - bg_l) > 0.001;
+                break :prepare .{
+                    .color = c,
+                    .fg_l = fg_l,
+                    .bg_l = bg_l,
+                    .encoded_fg = if (correct) unlinearize(fg_l) else 0,
+                    .encoded_bg = if (correct) unlinearize(bg_l) else 0,
+                    .correct = correct,
+                };
+            } else undefined;
             for (quad.y0..quad.y1) |y| for (quad.x0..quad.x1) |x| {
                 // tex_coord interpolates across the quad from glyph_pos to glyph_pos + glyph_size
                 const coord: [2]f32 = .{
@@ -556,18 +570,12 @@ pub const RenderPass = struct {
                 // cell_text_fragment
                 const out: Color = switch (cell.atlas) {
                     .grayscale => gray: {
-                        var c = color;
-                        if (!u.bools.use_linear_blending) c = unlinearizePremultiplied(c);
                         var a = grayscale.nearest(coord)[0];
-                        if (u.bools.use_linear_correction) {
-                            const fg_l = luminance(c);
-                            const bg_l = luminance(bg);
-                            if (@abs(fg_l - bg_l) > 0.001) {
-                                const blend_l = linearize(unlinearize(fg_l) * a + unlinearize(bg_l) * (1 - a));
-                                a = std.math.clamp((blend_l - bg_l) / (fg_l - bg_l), 0, 1);
-                            }
+                        if (gray.correct) {
+                            const blend_l = linearize(gray.encoded_fg * a + gray.encoded_bg * (1 - a));
+                            a = std.math.clamp((blend_l - gray.bg_l) / (gray.fg_l - gray.bg_l), 0, 1);
                         }
-                        break :gray c * splat(a);
+                        break :gray gray.color * splat(a);
                     },
                     .color => colored: {
                         const c = color_atlas.nearest(coord);
