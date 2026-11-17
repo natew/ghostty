@@ -495,12 +495,44 @@ pub const RenderPass = struct {
         const cols: i32 = u.grid_size[0];
         const rows: i32 = u.grid_size[1];
         if (cols == 0 or rows == 0) return;
+        var first_x = self.target.width;
+        var end_x: usize = 0;
+        for (0..self.target.width) |x| {
+            if (gridIndex(center(x), u.grid_padding[3], u.cell_size[0], cols, u.padding_extend.left, u.padding_extend.right) != null) {
+                first_x = @min(first_x, x);
+                end_x = x + 1;
+            }
+        }
+        if (first_x == self.target.width) return;
+        var previous_row: ?i32 = null;
+        var uniform_row = false;
+        var empty_row = false;
+        var row_bytes: [4]u8 = undefined;
         var previous: ?CellBg = null;
         var color: Color = undefined;
         var encoded: [4]u8 = undefined;
         for (0..self.target.height) |y| {
             const row = gridIndex(center(y), u.grid_padding[0], u.cell_size[1], rows, u.padding_extend.up, u.padding_extend.down) orelse continue;
-            for (0..self.target.width) |x| {
+            if (previous_row == null or previous_row.? != row) {
+                previous_row = row;
+                const row_cells = cells[@intCast(row * cols)..][0..@intCast(cols)];
+                var same = true;
+                empty_row = true;
+                for (row_cells) |cell| {
+                    same = same and std.meta.eql(row_cells[0], cell);
+                    empty_row = empty_row and cell[3] == 0;
+                    if (!same and !empty_row) break;
+                }
+                uniform_row = same and row_cells[0][3] == 255;
+                if (uniform_row) row_bytes = self.store(loadColor(row_cells[0], u.bools.use_display_p3, u.bools.use_linear_blending));
+            }
+            if (empty_row) continue;
+            if (uniform_row) {
+                const pixels = self.target.pixels[(y * self.target.width + first_x) * 4 .. (y * self.target.width + end_x) * 4];
+                @memset(std.mem.bytesAsSlice([4]u8, pixels), row_bytes);
+                continue;
+            }
+            for (first_x..end_x) |x| {
                 const col = gridIndex(center(x), u.grid_padding[3], u.cell_size[0], cols, u.padding_extend.left, u.padding_extend.right) orelse continue;
                 const cell = cells[@intCast(row * cols + col)];
                 if (cell[3] == 0) continue;
