@@ -526,6 +526,10 @@ pub const RenderPass = struct {
     ) void {
         const p3 = u.bools.use_display_p3;
         const global_bg = loadColor(u.bg_color, p3, true);
+        var cached_color_bits: ?u128 = null;
+        var cached_bg_bits: u128 = undefined;
+        var fragments: [256]Color = undefined;
+        var cached_coverage = std.StaticBitSet(256).initEmpty();
         for (cells) |cell| {
             // cell_text_vertex
             const gx: f32 = @floatFromInt(cell.grid_pos[0]);
@@ -561,6 +565,13 @@ pub const RenderPass = struct {
                     .correct = correct,
                 };
             } else undefined;
+            if (cell.atlas == .grayscale and (cached_color_bits == null or
+                cached_color_bits.? != @as(u128, @bitCast(gray.color)) or cached_bg_bits != @as(u128, @bitCast(bg))))
+            {
+                cached_color_bits = @bitCast(gray.color);
+                cached_bg_bits = @bitCast(bg);
+                cached_coverage = std.StaticBitSet(256).initEmpty();
+            }
             for (quad.y0..quad.y1) |y| for (quad.x0..quad.x1) |x| {
                 // tex_coord interpolates across the quad from glyph_pos to glyph_pos + glyph_size
                 const coord: [2]f32 = .{
@@ -570,12 +581,19 @@ pub const RenderPass = struct {
                 // cell_text_fragment
                 const out: Color = switch (cell.atlas) {
                     .grayscale => gray: {
-                        var a = grayscale.nearest(coord)[0];
+                        const atlas_x = clampIndex(@floor(coord[0]), grayscale.width);
+                        const atlas_y = clampIndex(@floor(coord[1]), grayscale.height);
+                        const coverage = grayscale.data[atlas_y * grayscale.width + atlas_x];
+                        if (cached_coverage.isSet(coverage)) break :gray fragments[coverage];
+                        var a = unorm(coverage);
                         if (gray.correct) {
                             const blend_l = linearize(gray.encoded_fg * a + gray.encoded_bg * (1 - a));
                             a = std.math.clamp((blend_l - gray.bg_l) / (gray.fg_l - gray.bg_l), 0, 1);
                         }
-                        break :gray gray.color * splat(a);
+                        const fragment = gray.color * splat(a);
+                        fragments[coverage] = fragment;
+                        cached_coverage.set(coverage);
+                        break :gray fragment;
                     },
                     .color => colored: {
                         const c = color_atlas.nearest(coord);
