@@ -24,6 +24,8 @@ const renderer = @import("../renderer.zig");
 const Allocator = std.mem.Allocator;
 const log = std.log.scoped(.io_thread);
 
+extern fn ghostty_wasi_dispatch_after(delay_ns: i64, context: *anyopaque, work: *const fn (*anyopaque) callconv(.c) void) void;
+
 /// This stores the information that is coalesced.
 const Coalesce = struct {
     /// The number of milliseconds to coalesce certain messages like resize for.
@@ -76,6 +78,7 @@ sync_reset_cancel_c: xev.Completion = .{},
 /// The callback data of a thread that has no OS thread behind it: the
 /// embedder pumps the loop on its own thread (see `startCooperative`).
 cooperative: ?*CallbackData = null,
+cooperative_resize: ?*?*CallbackData = null,
 
 flags: packed struct {
     /// This is set to true only when an abnormal exit is detected. It
@@ -318,6 +321,11 @@ pub fn stopCooperative(self: *Thread) void {
     self.stop.notify() catch |err|
         log.err("error notifying io thread to stop err={}", .{err});
     self.pump();
+    // A queued dispatch callback owns its context until it fires.
+    if (self.cooperative_resize) |pending| {
+        pending.* = null;
+        self.cooperative_resize = null;
+    }
     cb.io.threadExit(&cb.data);
     cb.data.deinit();
     self.alloc.destroy(cb);
@@ -369,7 +377,7 @@ fn drainMailbox(
                 try io.changeConfig(data, config.ptr);
             },
             .inspector => |v| self.flags.has_inspector = v,
-            .resize => |v| self.handleResize(cb, v),
+            .resize => |v| try self.handleResize(cb, v),
             .size_report => |v| try io.sizeReport(data, v),
             .clear_screen => |v| try io.clearScreen(data, v.history),
             .scroll_viewport => |v| io.scrollViewport(v),
@@ -426,7 +434,7 @@ fn drainMailbox(
                 // A surface resize is coalesced on this thread. Flush it
                 // before parsing external output so callers observe FIFO
                 // ordering between set_size and feed_data.
-                self.flushResize(cb);
+                self.flushResize(cb, .queued);
                 io.processOutput(v.data);
             },
         }
@@ -451,8 +459,22 @@ fn startSynchronizedOutput(self: *Thread, cb: *CallbackData) void {
     );
 }
 
-fn handleResize(self: *Thread, cb: *CallbackData, resize: renderer.Size) void {
+fn handleResize(self: *Thread, cb: *CallbackData, resize: renderer.Size) !void {
     self.coalesce_data.resize = resize;
+
+    // A cooperative loop has no thread to wake when the coalescer expires.
+    if (comptime builtin.os.tag == .wasi) {
+        if (self.cooperative_resize != null) return;
+        const pending = try global.alloc().create(?*CallbackData);
+        pending.* = cb;
+        self.cooperative_resize = pending;
+        ghostty_wasi_dispatch_after(
+            Coalesce.min_ms * std.time.ns_per_ms,
+            @ptrCast(pending),
+            cooperativeResizeCallback,
+        );
+        return;
+    }
 
     // If the timer is already active we just return. In the future we want
     // to reset the timer up to a maximum wait time but for now this ensures
@@ -489,6 +511,17 @@ fn syncResetCallback(
     return .disarm;
 }
 
+fn cooperativeResizeCallback(context: *anyopaque) callconv(.c) void {
+    const pending: *?*CallbackData = @ptrCast(@alignCast(context));
+    const cb_ = pending.*;
+    global.alloc().destroy(pending);
+    const cb = cb_ orelse return;
+
+    cb.self.cooperative_resize = null;
+    if (cb.self.coalesce_data.resize == null) return;
+    cb.self.flushResize(cb, .cooperative);
+}
+
 fn coalesceCallback(
     cb_: ?*CallbackData,
     _: *xev.Loop,
@@ -505,15 +538,15 @@ fn coalesceCallback(
 
     const cb = cb_ orelse return .disarm;
 
-    cb.self.flushResize(cb);
+    cb.self.flushResize(cb, .queued);
 
     return .disarm;
 }
 
-fn flushResize(self: *Thread, cb: *CallbackData) void {
+fn flushResize(self: *Thread, cb: *CallbackData, delivery: termio.Termio.ResizeRenderDelivery) void {
     if (self.coalesce_data.resize) |v| {
         self.coalesce_data.resize = null;
-        cb.io.resize(&cb.data, v) catch |err| {
+        cb.io.resize(&cb.data, v, delivery) catch |err| {
             log.warn("error during resize err={}", .{err});
         };
     }

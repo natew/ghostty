@@ -49,6 +49,13 @@ pub fn initStatic(
         lib.bundle_ubsan_rt = false;
     }
 
+    if (deps.config.target.result.os.tag == .wasi) {
+        lib.root_module.addCSourceFile(.{
+            .file = b.path("wasi/dispatch.c"),
+            .flags = &.{"-fblocks"},
+        });
+    }
+
     // Add our dependencies. Get the list of all static deps so we can
     // build a combined archive.
     var lib_list = try deps.add(lib);

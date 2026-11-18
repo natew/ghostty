@@ -480,11 +480,14 @@ pub fn changeConfig(self: *Termio, td: *ThreadData, config: *DerivedConfig) !voi
     self.terminal.setKittyGraphicsLoadingLimits(.allWithTempDir(global.tmpDirPath()));
 }
 
+pub const ResizeRenderDelivery = enum { queued, cooperative };
+
 /// Resize the terminal.
 pub fn resize(
     self: *Termio,
     td: *ThreadData,
     size: renderer.Size,
+    delivery: ResizeRenderDelivery,
 ) !void {
     self.size = size;
     const grid_size = size.grid();
@@ -518,7 +521,10 @@ pub fn resize(
 
     // Mail the renderer so that it can update the GPU and re-render
     _ = self.renderer_mailbox.push(global.io(), .{ .resize = size }, .{ .forever = {} });
-    self.renderer_wakeup.notify() catch {};
+    switch (delivery) {
+        .queued => self.renderer_wakeup.notify() catch {},
+        .cooperative => self.surface_mailbox.surface.renderer_thread.renderPending(),
+    }
 }
 
 /// Make a size report.

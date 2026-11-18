@@ -542,8 +542,11 @@ fn wakeupCallback(
         return .rearm;
     };
 
-    const t = self_.?;
+    self_.?.renderPending();
+    return .rearm;
+}
 
+pub fn renderPending(t: *Thread) void {
     // When we wake up, we check the mailbox. Mailbox producers should
     // wake up our thread after publishing.
     t.drainMailbox() catch |err|
@@ -555,25 +558,6 @@ fn wakeupCallback(
     // PageList mutations maintain their own compression dirty state. Checking
     // it here covers output, resize, and viewport scrolling uniformly.
     t.compression.wake(t);
-
-    // The below is not used anymore but if we ever want to introduce
-    // a configuration to introduce a delay to coalesce renders, we can
-    // use this.
-    //
-    // // If the timer is already active then we don't have to do anything.
-    // if (t.render_c.state() == .active) return .rearm;
-    //
-    // // Timer is not active, let's start it
-    // t.render_h.run(
-    //     &t.loop,
-    //     &t.render_c,
-    //     10,
-    //     Thread,
-    //     t,
-    //     renderCallback,
-    // );
-
-    return .rearm;
 }
 
 fn drawNowCallback(
